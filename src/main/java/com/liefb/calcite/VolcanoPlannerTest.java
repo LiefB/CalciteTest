@@ -48,10 +48,11 @@ public class VolcanoPlannerTest {
                 .build();
 
         String sql = "select u.id as user_id, u.name as user_name, j.company as user_company, u.age as user_age "
-                + "from users u join jobs j on u.id=j.id "
-                + "where u.age > 30 and j.id>10 order by user_id";
+                + "from users u join jobs j on u.id = j.id "
+                + "where u.age > 30 and j.id > 10 "
+                + "order by user_id";
 
-        // use HepPlanner
+        // use VolcanoPlanner
         VolcanoPlanner planner = new VolcanoPlanner();
         planner.addRelTraitDef(ConventionTraitDef.INSTANCE);
         planner.addRelTraitDef(RelDistributionTraitDef.INSTANCE);
@@ -71,8 +72,9 @@ public class VolcanoPlannerTest {
             // sql parser
             SqlParser parser = SqlParser.create(sql, SqlParser.Config.DEFAULT);
             SqlNode parsed = parser.parseStmt();
-            LOGGER.info("The SqlNode after parsed is:\n{}", parsed.toString());
+            LOGGER.info("The SqlNode after parsed is:\n{}\n", parsed.toString());
 
+            // 通过CalciteCatalogReader获取table schema
             CalciteCatalogReader calciteCatalogReader = new CalciteCatalogReader(
                     CalciteSchema.from(rootSchema),
                     CalciteSchema.from(rootSchema).path(null),
@@ -83,7 +85,7 @@ public class VolcanoPlannerTest {
             SqlValidator validator = SqlValidatorUtil.newValidator(SqlStdOperatorTable.instance(), calciteCatalogReader,
                     factory, CalciteUtils.conformance(fromworkConfig));
             SqlNode validated = validator.validate(parsed);
-            LOGGER.info("The SqlNode after validated is:\n{}", validated.toString());
+            LOGGER.info("The SqlNode after validated is:\n{}\n", validated.toString());
 
             final RexBuilder rexBuilder = CalciteUtils.createRexBuilder(factory);
             final RelOptCluster cluster = RelOptCluster.create(planner, rexBuilder);
@@ -103,13 +105,16 @@ public class VolcanoPlannerTest {
             final RelBuilder relBuilder = config.getRelBuilderFactory().create(cluster, null);
             root = root.withRel(RelDecorrelator.decorrelateQuery(root.rel, relBuilder));
             RelNode relNode = root.rel;
-            LOGGER.info("The relational expression string before optimized is:\n{}", RelOptUtil.toString(relNode));
+            LOGGER.info("The relational expression string before optimized is:\n{}\n", RelOptUtil.toString(relNode));
 
+            // Changes a relational expression to an equivalent one with a different set of traits
             RelTraitSet desiredTraits =
                     relNode.getCluster().traitSet().replace(EnumerableConvention.INSTANCE);
             relNode = planner.changeTraits(relNode, desiredTraits);
 
+            // 通过 VolcanoPlanner 的 setRoot 方法注册相应的 RelNode，并进行相应的初始化操作
             planner.setRoot(relNode);
+            // 通过动态规划算法找到 cost 最小的 plan
             relNode = planner.findBestExp();
             System.out.println("The Best relational expression string:\n" + RelOptUtil.toString(relNode));
 
